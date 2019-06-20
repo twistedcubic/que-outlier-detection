@@ -1,0 +1,6 @@
+## Robust mean estimation and outlier detection ##
+
+- mean.py contains the backbone of the experimental setup and evaluation.
+- utils.py contains various utilities methods, such as fast JL computation.
+- auxiliary scripts such as pixel.py, words.py include code specific to certain experiments.
+
