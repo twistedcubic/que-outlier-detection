@@ -34,6 +34,8 @@ def parse_args():
     parser.set_defaults(generate_data=False)
     parser.add_argument('--fast_jl', help='Use fast method to generate approximate QUE scores', dest='fast_jl', action='store_true')
     parser.set_defaults(fast_jl=False)
+    parser.add_argument('--fast_whiten', help='Use approximate whitening', dest='fast_whiten', action='store_true')
+    parser.set_defaults(fast_whiten=False)    
     parser.add_argument('--high_dim', help='Generate high-dimensional data, if running synthetic data experiments', dest='high_dim', action='store_true')
     parser.set_defaults(high_dim=False)    
     
