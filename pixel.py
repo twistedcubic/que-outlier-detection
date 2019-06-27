@@ -425,19 +425,21 @@ def test_pixel2(X, noise_idx, outlier_method_l, opt):
 if __name__ == '__main__':
     opt = utils.parse_args()
     
-    opt.fast_jl = True #True #True
     opt.use_std = True
     opt.compute_scores_diff = True
     opt.whiten = True
-    opt.fast_whiten = True #False
+    opt.fast_whiten = True
+    
     #directory to store results
     opt.dir = 'cifar'
-    method = 'dirs' #'lamb' #dirs
-    if method == 'lamb':
+    method = opt.experiment_type
+    if method == 'image_lamb':
         opt.type = 'lamb'
         test_pixel_lamb(opt)
-    elif method == 'dirs':
+    elif method == 'image_dirs':
         opt.type = 'dirs'
         test_pixel_dirs(opt)
+    else:
+        raise Exception('Wrong script for experiment type {}'.format(method))
     
 

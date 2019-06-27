@@ -21,16 +21,11 @@ import ads
 import pdb
 
 device = utils.device
-
 NOISE_INN_THRESH = 0.1
-
-#max number of directions
-N_DIR = 50
-
 DEBUG = False
 
 '''
-Compute M
+Compute QUE scoring matrix U.
 '''
 def compute_m(X, lamb, noise_vecs=None):
     
@@ -463,7 +458,6 @@ def compute_tau1_tau0(X, opt):
         
     def get_select_idx(tau_method):
         if device == 'cuda':
-            pdb.set_trace()
             select_idx = torch.cuda.LongTensor(list(range(X.size(0))))
         else:
             select_idx = torch.LongTensor(list(range(X.size(0))))
@@ -638,7 +632,7 @@ def generate_and_score(opt, dataset_name='syn'):
         tau_l.extend([0, 1])
         res_l.append(cur_res_l)
     
-    print('About to plot!')
+    print('About to overwrite plots. Press "c" to continue')
     pdb.set_trace()
     if plot_lambda:
         legends = ['k', 'acc', 'tau', 'lambda']
@@ -698,6 +692,7 @@ def generate_and_score_lamb(opt, dataset_name='syn'):
         #scores_ar = np.concatenate((mean1[:, 0].reshape(1, -1), scores_ar[:,:,3]), axis=0)
         #scores_ar = np.stack([mean1[:, 0]]+conf_l, axis=0)
         #np.concatenate((mean1[:, 0].reshape(1,-1), np.stack(scores_l, axis=0)), axis=0)
+        print('About to overwrite plots. Press "c" to continue.')
         pdb.set_trace()
         utils.plot_scatter_flex(tau0_ar, legend_l, opt, std_ar=tau0_conf_ar, name='tau0')
         utils.plot_scatter_flex(l2_ar, legend_l, opt, std_ar=l2_conf_ar, name='l2')
@@ -716,6 +711,7 @@ def generate_and_score_lamb(opt, dataset_name='syn'):
 
         scores_ar = np.concatenate((mean1[:, 0].reshape(1,-1), np.stack(scores_l, axis=0)), axis=0)
         conf_ar = np.concatenate((mean1[:, 0].reshape(1,-1), np.stack(conf_l, axis=0)), axis=0)
+        print('About to overwrite plots. Press "c" to continue')
         pdb.set_trace()
         utils.plot_scatter_flex(scores_ar, legend_l, opt, std_ar=conf_ar)
     
@@ -836,7 +832,7 @@ def generate_and_score_lamb2(opt, dataset_name='syn'):
     print(std_ar)
     plot = False
     if plot:
-        print('About to plot!')
+        print('About to overwrite plots. Press "c" to continue')
         pdb.set_trace()
         legends = ['lamb', 'acc', 'tau']
         #plot both tau1 vs tau0, and tau1 against all baselines.
@@ -1018,7 +1014,7 @@ def test_glove_data_lamb(opt, noise_percent=0.2):
         #scores_ar = np.concatenate((mean1[:, 0].reshape(1, -1), scores_ar[:,:,3]), axis=0)
         #scores_ar = np.stack([mean1[:, 0]]+conf_l, axis=0)
         #np.concatenate((mean1[:, 0].reshape(1,-1), np.stack(scores_l, axis=0)), axis=0)
-        
+        print('About to overwrite plots. Press "c" to continue')
         pdb.set_trace()
         utils.plot_scatter_flex(tau0_ar, legend_l, opt, std_ar=tau0_conf_ar, name='tau0')
         utils.plot_scatter_flex(l2_ar, legend_l, opt, std_ar=l2_conf_ar, name='l2')
@@ -1268,6 +1264,7 @@ def test_glove_data_dirs(opt, noise_percent=0.2):
         prob1_std_l.append(auc_prob1_std)        
         
     print('tau0_percent {} tau1_percent {} prob {} {}'.format(tau0_percent_l, tau1_percent_l, prob0_l, prob1_l))
+    print('About to overwrite plots. Press "c" to continue')
     pdb.set_trace()
     utils.plot_scatter(mult, prob1_l, ['n_dir', 'rocauc_tau1'], opt, std=prob1_std_l)
     utils.plot_scatter(mult, prob0_l, ['n_dir', 'rocauc_tau0'], opt, std=prob0_std_l)
@@ -1650,40 +1647,42 @@ def test_vgg_data():
 if __name__=='__main__':
 
     opt = utils.parse_args()
-    
-    generate_data = True #False 
-    opt.fast_jl = True #False 
+    '''
+    generate_data = True 
+    opt.fast_jl = True     
+    opt.high_dim = True
+    '''
+    #compute std or confidence interval to measure uncertainty.
     opt.use_std = True
+    #whether computing differences between scores or raw scores.
     opt.compute_scores_diff = True
+    #whether to visualize scores, could be useful for debugging.
     opt.visualize_scores = False
+    #whether to whiten data, note this is void for some datasets.
     opt.whiten = True
-    opt.high_dim = True #False 
+    dataset_name = opt.experiment_type
     
-    if generate_data:
-        if opt.high_dim:
-            utils.device = 'cpu'
-            device = 'cpu'
-            
-        #glove, vgg, genetics, or syn
-        dataset_name = 'syn'
+    if opt.generate_data:
         opt.dir = 'syn'
-        opt.type = 'lamb'
-        print('{} {}'.format(opt.dir, opt.type))
-        if opt.type == 'lamb':
-            generate_and_score_lamb(opt, dataset_name)
-        elif opt.type == 'dirs':
-            generate_and_score(opt, dataset_name)            
+        print('{}'.format(opt.dir))
+        if dataset_name == 'syn_lamb':
+            opt.type = 'lamb'
+            generate_and_score_lamb(opt, 'syn')
+        elif dataset_name == 'syn_dirs':
+            opt.type = 'dirs'
+            generate_and_score(opt, 'syn')            
     else:
-        dataset_name = 'glove_dirs' #'glove_lamb' #'glove_lamb' #'glove_dirs' #'glove'
-        if dataset_name == 'glove':
+        #'glove_lamb' #'glove_lamb' #'glove_dirs' #'glove'
+        #dataset_name = 'glove_dirs' 
+        if dataset_name == 'text':
             opt.dir = 'text'
             opt.type = '_'
             test_glove_data(opt)
-        elif dataset_name == 'glove_lamb':
+        elif dataset_name == 'text_lamb':
             opt.dir = 'text'
             opt.type = 'lamb'   
             test_glove_data_lamb(opt)
-        elif dataset_name == 'glove_dirs':
+        elif dataset_name == 'text_dirs':
             opt.dir = 'text'
             opt.type = 'dirs'   
             test_glove_data_dirs(opt)
@@ -1694,6 +1693,6 @@ if __name__=='__main__':
         elif dataset_name == 'vgg':
             test_vgg_data()
         else:
-            generate_and_score(opt)
+            raise Exception('Unsupported experiment type {}'.format(opt.experiment_type))
 
 

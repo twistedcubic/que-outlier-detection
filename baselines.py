@@ -14,8 +14,6 @@ import sklearn.ensemble
 import sklearn.covariance
 import sklearn.cluster
 import random
-import part_utils
-
 import utils
 import pdb
 
@@ -29,7 +27,7 @@ def knn_dist(X, k=10, sum_dist=False):
     
     #dist_ = dist(X, X)
     #min_dist, idx = torch.topk(dist_, dim=-1, k=k, largest=False)
-    min_dist, idx = part_utils.dist_rank(X, k=k, largest=False)
+    min_dist, idx = utils.dist_rank(X, k=k, largest=False)
     
     if sum_dist:
         dist_score = min_dist.sum(-1)
@@ -48,7 +46,7 @@ def knn_dist_lof(X, k=10):
     #dist_ = dist(X, X)    
     #min_dist, min_idx = torch.topk(dist_, dim=-1, k=k, largest=False)
     
-    min_dist, min_idx = part_utils.dist_rank(X, k=k, largest=False)
+    min_dist, min_idx = utils.dist_rank(X, k=k, largest=False)
     #if X_len == 8049:
     #    pdb.set_trace()
     kth_dist = min_dist[:, -1]

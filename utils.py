@@ -27,12 +27,28 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--max_dir', default=1, type=int, help='max number of directions' )
-    parser.add_argument('--k ', default=' ', help=' ')
-    parser.add_argument('--lamb_multiplier', type=float, default=1., help='lambda multiplier')
+    parser.add_argument('--max_dir', default=1, type=int, help='Max number of directions' )
+    parser.add_argument('--lamb_multiplier', type=float, default=1., help='Set alpha multiplier')
+    parser.add_argument('--experiment_type', default='syn_lamb', help='Set type of experiment, e.g. syn_dirs, syn_lamb, text_lamb, text_dirs, image_lamb, image_dirs, representing varying alpha or the number of corruption directions for the respective dataset')
+    parser.add_argument('--generate_data', help='Generate synthetic data to run synthetic data experiments', dest='generate_data', action='store_true')
+    parser.set_defaults(generate_data=False)
+    parser.add_argument('--fast_jl', help='Use fast method to generate approximate QUE scores', dest='fast_jl', action='store_true')
+    parser.set_defaults(fast_jl=False)
+    parser.add_argument('--high_dim', help='Generate high-dimensional data, if running synthetic data experiments', dest='high_dim', action='store_true')
+    parser.set_defaults(high_dim=False)    
     
     opt = parser.parse_args()
+    
+    if len(opt.experiment_type) > 3 and opt.experiment_type[:3] == 'syn':
+        opt.generate_data = True
+        
     return opt
+
+def create_dir(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
+    
+create_dir(res_dir)
 
 '''
 Get degree and coefficient for kth Chebyshev poly.
@@ -487,13 +503,7 @@ def plot_scatter_flex(data_ar, legend_l, opt, std_ar=None, name=''):
     
     label_name = get_label_name(name) #'naive spectral' if name == 'tau0' else name
     #fig.set(ylim=(0, 1.05))
-    '''
-    if(data_ar[1:].max() > .5) or opt.dir == 'syn':
-        plt.ylim(-0.45, 1.)
-    else:        
-        plt.ylim(-0.15, .5)
-    '''
-
+    
     plt.grid(True)
     plt.legend()
     if opt.type == 'lamb':
@@ -518,6 +528,7 @@ def plot_scatter_flex(data_ar, legend_l, opt, std_ar=None, name=''):
     #if opt.fast_jl:
     #    fig_path = osp.join(utils.res_dir, opt.dir, 'baselines_{}{}_fast.jpg'.format(opt.type, name))
     #else:
+    create_dir(osp.join(utils.res_dir, opt.dir))
     fig_path = osp.join(utils.res_dir, opt.dir, 'baselines_{}{}{}.jpg'.format(opt.type, name, fname_append))
     plt.savefig(fig_path)
     print('figure saved under {}'.format(fig_path))
@@ -733,3 +744,110 @@ def np_save(obj, path):
     with open(path, 'wb') as f:
         np.save(f, obj)
         print('saved under {}'.format(path))
+
+'''
+Memory-compatible. 
+Ranks of closest points not self.
+Uses l2 dist. But uses cosine dist if data normalized. 
+Input: 
+-data: tensors
+-specify k if only interested in the top k results.
+-largest: whether pick largest when ranking. 
+-include_self: include the point itself in the final ranking.
+'''
+def dist_rank(data_x, k, data_y=None, largest=False, opt=None, include_self=False):
+
+    if isinstance(data_x, np.ndarray):
+        data_x = torch.from_numpy(data_x)
+
+    if data_y is None:
+        data_y = data_x
+    else:
+        if isinstance(data_y, np.ndarray):
+            data_y = torch.from_numpy(data_y)
+    k0 = k
+    device_o = data_x.device
+    data_x = data_x.to(device)
+    data_y = data_y.to(device)
+    
+    (data_x_len, dim) = data_x.size()
+    data_y_len = data_y.size(0)
+    #break into chunks. 5e6  is total for MNIST point size
+    #chunk_sz = int(5e6 // data_y_len)
+    chunk_sz = 16384
+    chunk_sz = 500 #700 mem error. 1 mil points
+    if data_y_len > 990000:
+        chunk_sz = 600 #1000 if over 1.1 mil
+        #chunk_sz = 500 #1000 if over 1.1 mil 
+    else:
+        chunk_sz = 3000    
+
+    if k+1 > len(data_y):
+        k = len(data_y) - 1
+    #if opt is not None and opt.sift:
+    
+    if device == 'cuda':
+        dist_mx = torch.cuda.LongTensor(data_x_len, k+1)
+        act_dist = torch.cuda.FloatTensor(data_x_len, k+1)
+    else:
+        dist_mx = torch.LongTensor(data_x_len, k+1)
+        act_dist = torch.cuda.FloatTensor(data_x_len, k+1)
+    data_normalized = True if opt is not None and opt.normalize_data else False
+    largest = True if largest else (True if data_normalized else False)
+    
+    #compute l2 dist <--be memory efficient by blocking
+    total_chunks = int((data_x_len-1) // chunk_sz) + 1
+    y_t = data_y.t()
+    if not data_normalized:
+        y_norm = (data_y**2).sum(-1).view(1, -1)
+    
+    for i in range(total_chunks):
+        base = i*chunk_sz
+        upto = min((i+1)*chunk_sz, data_x_len)
+        cur_len = upto-base
+        x = data_x[base : upto]
+        
+        if not data_normalized:
+            x_norm = (x**2).sum(-1).view(-1, 1)        
+            #plus op broadcasts
+            dist = x_norm + y_norm        
+            dist -= 2*torch.mm(x, y_t)
+        else:
+            dist = -torch.mm(x, y_t)
+            
+        topk_d, topk = torch.topk(dist, k=k+1, dim=1, largest=largest)
+                
+        dist_mx[base:upto, :k+1] = topk #torch.topk(dist, k=k+1, dim=1, largest=largest)[1][:, 1:]
+        act_dist[base:upto, :k+1] = topk_d #torch.topk(dist, k=k+1, dim=1, largest=largest)[1][:, 1:]
+        
+    topk = dist_mx
+    if k > 3 and opt is not None and opt.sift:
+        #topk = dist_mx
+        #sift contains duplicate points, don't run this in general.
+        identity_ranks = torch.LongTensor(range(len(topk))).to(topk.device)
+        topk_0 = topk[:, 0]
+        topk_1 = topk[:, 1]
+        topk_2 = topk[:, 2]
+        topk_3 = topk[:, 3]
+
+        id_idx1 = topk_1 == identity_ranks
+        id_idx2 = topk_2 == identity_ranks
+        id_idx3 = topk_3 == identity_ranks
+
+        if torch.sum(id_idx1).item() > 0:
+            topk[id_idx1, 1] = topk_0[id_idx1]
+
+        if torch.sum(id_idx2).item() > 0:
+            topk[id_idx2, 2] = topk_0[id_idx2]
+
+        if torch.sum(id_idx3).item() > 0:
+            topk[id_idx3, 3] = topk_0[id_idx3]           
+
+    
+    if not include_self:
+        topk = topk[:, 1:]
+        act_dist = act_dist[:, 1:]
+    elif topk.size(-1) > k0:
+        topk = topk[:, :-1]
+    topk = topk.to(device_o)
+    return act_dist, topk
