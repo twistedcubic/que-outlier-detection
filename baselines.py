@@ -1,10 +1,12 @@
 
 '''
 Baseline methods.
--kmeans clustering
--LOF
+-various LOF-based methods
 -isolation forest
 -dbscan
+-l2
+-elliptic envelope
+-naive spectral
 -
 '''
 import torch
@@ -25,8 +27,6 @@ Input:
 '''
 def knn_dist(X, k=10, sum_dist=False):
     
-    #dist_ = dist(X, X)
-    #min_dist, idx = torch.topk(dist_, dim=-1, k=k, largest=False)
     min_dist, idx = utils.dist_rank(X, k=k, largest=False)
     
     if sum_dist:
@@ -47,18 +47,12 @@ def knn_dist_lof(X, k=10):
     #min_dist, min_idx = torch.topk(dist_, dim=-1, k=k, largest=False)
     
     min_dist, min_idx = utils.dist_rank(X, k=k, largest=False)
-    #if X_len == 8049:
-    #    pdb.set_trace()
     kth_dist = min_dist[:, -1]
     # sum max(kth dist, dist(o, p)) over neighbors o of p
     kth_dist_exp = kth_dist.expand(X.size(0), -1) #n x n
     kth_dist = torch.gather(input=kth_dist_exp, dim=1, index=min_idx)
     
-    try:
-        min_dist[kth_dist > min_dist] = kth_dist[kth_dist > min_dist]
-    except RuntimeError:
-        print('erro!')
-        pdb.set_trace()
+    min_dist[kth_dist > min_dist] = kth_dist[kth_dist > min_dist]
     #inverse of lrd scores
     dist_avg = min_dist.mean(-1).clamp(min=0.0001)
     
@@ -172,86 +166,4 @@ def dist(X, Y):
 
     return cur_distances
     
-#number of iterations in 
-MAX_KM_ITER = 60
-
-def random_init(dataset, num_centers):
-    num_points = dataset.size(0)
-    dimension = dataset.size(1)
-    used = torch.zeros(num_points, dtype=torch.long)
-    indices = torch.zeros(num_centers, dtype=torch.long)
-    for i in range(num_centers):
-        while True:
-            cur_id = random.randint(0, num_points - 1)
-            if used[cur_id] > 0:
-                continue
-            used[cur_id] = 1
-            indices[i] = cur_id
-            break
-    indices = indices.to(dataset.device)
-    centers = torch.gather(dataset, 0, indices.view(-1, 1).expand(-1, dimension))
-    return centers
-
-def compute_codes(dataset, centers):
-
-    device0 = dataset.device
-    dataset = dataset.cuda()
-    centers = centers.cuda()
-
-    num_points = dataset.size(0)
-    dimension = dataset.size(1)
-    num_centers = centers.size(0)
-
-    chunk_size = int(8e8 / num_centers) 
-    codes = torch.zeros(num_points, dtype=torch.long, device=utils.device)
-    centers_t = torch.transpose(centers, 0, 1)
-    centers_norms = torch.sum(centers ** 2, dim=1).view(1, -1)
-    for i in range(0, num_points, chunk_size):
-        begin = i
-        end = min(begin + chunk_size, num_points)
-        dataset_piece = dataset[begin:end, :]
-        dataset_norms = torch.sum(dataset_piece ** 2, dim=1).view(-1, 1)
-        distances = torch.mm(dataset_piece, centers_t)
-        distances *= -2.0
-        distances += dataset_norms
-        distances += centers_norms
-        _, min_ind = torch.min(distances, dim=1)
-        codes[begin:end] = min_ind
-    del(dataset)
-    del(centers)
-    return codes.to(device0)
-
-def update_centers(dataset, codes, num_centers):
-    num_points = dataset.size(0)
-    dimension = dataset.size(1)
-    cur_device = dataset.device
-    centers = torch.zeros(num_centers, dimension, dtype=torch.float, device=cur_device)
-    cnt = torch.zeros(num_centers, dtype=torch.float, device=cur_device)
-    centers.scatter_add_(0, codes.view(-1, 1).expand(-1, dimension), dataset)
-    cnt.scatter_add_(0, codes, torch.ones(num_points, dtype=torch.float, device=cur_device))
-    cnt = torch.where(cnt > 0.5, cnt, torch.ones(num_centers, dtype=torch.float, device=cur_device))
-    centers /= cnt.view(-1, 1)
-    return centers
-
-'''
-Clustering, but this requires number of clusters to be passed.
-'''
-def cluster(dataset, num_centers):
-    centers = random_init(dataset, num_centers)
-    codes = compute_codes(dataset, centers)
-    num_iterations = 0
-    while True:
-        num_iterations += 1
-        #want integral centers, regardless of whether dataset is naturally or artifically integral.
-        centers = update_centers(dataset, codes, num_centers)#.round() #<--don't round, since quantizing after not before
-        new_codes = compute_codes(dataset, centers)
-
-        if torch.equal(codes, new_codes):
-            #print('Converged in %d iterations' % num_iterations)
-            break
-        if num_iterations == MAX_KM_ITER:
-            break
-        codes = new_codes
-
-    return centers, codes
     

@@ -1,6 +1,6 @@
 # Fast mean estimation and outlier detection
 
-This repo contains code for our paper **Quantum Entropy Scoring for Fast Robust Mean Estimation and Improved Outlier Detection**.
+This repo contains code for our paper [**Quantum Entropy Scoring for Fast Robust Mean Estimation and Improved Outlier Detection**](https://arxiv.org/abs/1906.11366).
 
 
 Description of select scripts:
