@@ -52,7 +52,7 @@ def load_process_glove_data(dim=100):
         line_ar = line.split()
         words_ar[i] = line_ar[0]
         word_emb[i] = torch.FloatTensor([float(t) for t in line_ar[1:]])
-    pdb.set_trace()
+    
     word_emb = word_emb.to(utils.device)
     return words_ar, word_emb
 

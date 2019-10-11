@@ -887,6 +887,7 @@ def test_genetics_data():
 
 def test_glove_data(opt):
 
+    ## update here to run on other text data ##
     text_name = 'sherlock'
     
     with open('data/{}.txt'.format(text_name), 'r') as file:

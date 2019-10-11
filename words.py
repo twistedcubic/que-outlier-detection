@@ -3,8 +3,6 @@
 Detect outliers in word embeddings
 '''
 import torch
-import allennlp.data.tokenizers.word_tokenizer as tokenizer
-from allennlp.data.tokenizers.word_filter import StopwordFilter
 import sklearn.decomposition as decom
 import data
 import utils
@@ -14,6 +12,18 @@ import re
 
 import pdb
 
+USE_ALLENNLP = False
+#use flag, as some users reported issues with installation.
+if USE_ALLENNLP:
+    import allennlp.data.tokenizers.word_tokenizer as tokenizer
+    from allennlp.data.tokenizers.word_filter import StopwordFilter
+    tk = tokenizer.WordTokenizer()
+    stop_word_filter = StopwordFilter()
+else:
+    print('Note: using rudimentary tokenizer, for better results enable allennlp.')
+    stop_word_filter = utils.stop_word_filter()
+    tk = utils.tokenizer()
+    
 '''
 Combines content and noise words embeddings
 '''
@@ -27,10 +37,10 @@ def doc_word_embed_content_noise(content_path, noise_path, whiten_path=None, con
     words_ar = content_words_ar
     word_embeds = torch.cat((content_word_embeds, noise_word_embeds), dim=0)
     
-    whitening = opt.whiten if opt is not None else True  #True #April, temporary normalize by inlier covariance!
+    whitening = opt.whiten if opt is not None else True  
     if whitening and whiten_path is not None:
         #use an article of data in the inliers topic to whiten data.
-        whiten_ar, whiten_word_embeds = doc_word_embed_f(whiten_path, set()) #, content_lines=content_lines)#,content_lines=content_lines) ######april!!
+        whiten_ar, whiten_word_embeds = doc_word_embed_f(whiten_path, set()) #, content_lines=content_lines)#,content_lines=content_lines)
         
         whiten_cov = utils.cov(whiten_word_embeds)
         fast_whiten = False #True
@@ -119,16 +129,13 @@ def doc_word_embed(path, no_add_set, content_lines=None):
         with open(path, 'r') as file:
             lines = file.readlines()
 
-    lines1 = []
     words = []
     vocab, embeds = data.process_glove_data(dim=100)
     embed_map = dict(zip(vocab, embeds))
     
-    tk = tokenizer.WordTokenizer()
     #list of list of tokens
-    tokens_l = tk.batch_tokenize(lines)
-    stop_word_filter = StopwordFilter()
-
+    tokens_l = tk.batch_tokenize(lines)   
+    #stop_word_filter = StopwordFilter()
     tokens_l1 = []
     for sentence_l in tokens_l:
         tokens_l1.extend(sentence_l)
@@ -143,8 +150,8 @@ def doc_word_embed(path, no_add_set, content_lines=None):
         sentence = stop_word_filter.filter_words(sentence)
         cur_embed = torch.zeros_like(embed_map['a'])
         cur_counter = 0
-        for j,w in enumerate(sentence):
-            w = w.text.lower()
+        for j,w in enumerate(sentence):            
+            w = w.text.lower() if USE_ALLENNLP else w.lower()
             if w in embed_map:# and w not in added_set:
                 if cur_counter == n_avg:# or j==len(sentence)-1:
                     added_set.add(w)
@@ -184,12 +191,9 @@ def doc_word_embed_sen(path, no_add_set, content_lines=None):
     
     words = []
     vocab, embeds = data.process_glove_data(dim=100)
-    embed_map = dict(zip(vocab, embeds))
-    
-    tk = tokenizer.WordTokenizer()
+    embed_map = dict(zip(vocab, embeds))    
     #list of list of tokens
-    tokens_l = tk.batch_tokenize(lines)
-    stop_word_filter = StopwordFilter()
+    tokens_l = tk.batch_tokenize(lines)    
 
     '''
     tokens_l1 = []
@@ -208,7 +212,7 @@ def doc_word_embed_sen(path, no_add_set, content_lines=None):
         cur_embed = torch.zeros_like(embed_map['a'])
         cur_counter = 0
         for j,w in enumerate(sentence):
-            w = w.text.lower()
+            w = w.text.lower() if USE_ALLENNLP else w.lower()
             if w in embed_map:# and w not in added_set:
                 if cur_counter == max_len:# or j==len(sentence)-1:
                     #added_set.add(w)
@@ -235,27 +239,21 @@ def doc_word_embed0(path, no_add_set):
     with open(path, 'r') as file:
         lines = file.readlines()
 
-    lines1 = []
-    #for line in lines:
-    #    lines1.extend(line.lower().split('.') )        
-    #lines = lines1
-    
     words = []
     vocab, embeds = data.process_glove_data(dim=100)
     embed_map = dict(zip(vocab, embeds))
     
-    tk = tokenizer.WordTokenizer()
     #list of list of tokens
     tokens_l = tk.batch_tokenize(lines)
-    stop_word_filter = StopwordFilter()
-    
+        
     word_embeds = []
     words_ar = []
     added_set = set(no_add_set)
     for sentence in tokens_l:
         sentence = stop_word_filter.filter_words(sentence)    
         for w in sentence:
-            w = w.text.lower()
+            
+            w = w.text.lower() if USE_ALLENNLP else w.lower()
             if w in embed_map and w not in added_set:
                 added_set.add(w)
                 words_ar.append(w)
@@ -283,7 +281,6 @@ def doc_sentence_embed(path):
     vocab, embeds = data.process_glove_data(dim=100)
     embed_map = dict(zip(vocab, embeds))
     
-    tk = tokenizer.WordTokenizer()
     tokens_l = tk.batch_tokenize(lines)
     word_embeds = []
     words_ar = []
@@ -294,7 +291,7 @@ def doc_sentence_embed(path):
         sentence_embed = 0
         aa = True
         for w in sentence:
-            w = w.text.lower()
+            w = w.text.lower() if USE_ALLENNLP else w.lower()
             if w in embed_map:# and w not in added_set:
                 ##added_set.add(w)
                 ##words_ar.append(w)

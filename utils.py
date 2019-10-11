@@ -2,6 +2,7 @@
 '''
 Utilities functions
 '''
+from __future__ import unicode_literals
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -855,19 +856,35 @@ def dist_rank(data_x, k, data_y=None, largest=False, opt=None, include_self=Fals
     topk = topk.to(device_o)
     return act_dist, topk
 
-def remove_stop_words(tok_l):
+class tokenizer:
     """
-    Input: tok_l: list of tokens
+    Rudimentary tokenizer for when allennlp is unavailable.
     """
-    tok_l2 = []
-    for tok in tok_l:
-        if tok not in STOP_WORDS:
-            tok_l2.append(tok)
-    return tok_l2
+    def __init__(self):
+        import re
+        self.patt = re.compile('[ ;,.?!`\'":|\s~%&*()#$@+-=]')
+        
+    def batch_tokenize(self, sent_l):
+        sent_l2 = []
+        for sent in sent_l:            
+            sent_l2.append(self.patt.split(sent))
+            
+        return sent_l2
+    
+class stop_word_filter:
+    
+    def filter_words(self, tok_l):
+        """
+        Input: tok_l: list of tokens
+        """
+        tok_l2 = []
+        for tok in tok_l:
+            if tok not in STOP_WORDS:
+                tok_l2.append(tok)
+        return tok_l2
 
 ## This below is due to the authors of spacy, reproduced here as some users have ##
 ## reported difficulties installing the language packages required for processig text ##
-from __future__ import unicode_literals
 
 # Stop words
 STOP_WORDS = set(
