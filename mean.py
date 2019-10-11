@@ -17,6 +17,7 @@ import data
 import baselines
 import words
 import ads
+import time
 
 import pdb
 
@@ -102,23 +103,17 @@ def corrupt(feat_dim, n_dir, cor_portion, opt):
     #for testing, to achieve high acc for tau0 & tau1: noise_norms = np.random.normal( np.sqrt(feat_dim), 1. , (int(np.ceil(n_c
     
     #min number of samples per noise dir
-    n_noise_min = 520
-    ##noise_vecs = torch.zeros(n_dir, feat_dim, device=X.device)
-    
-    ##base_n = int(float(n_cor)/sum([1.2**i for i in range(n_dir)]))
+    n_noise_min = 520   
     end = 0
     noise_vecs_l = []
     chunk_sz = (feat_dim-1) // n_dir
     for i in range(n_dir):
-        #start = end
-        #end = min(n_cor, int(end + base_n*1.2**i))
         
         cur_n = int(n_noise_min * 1.1**i)
         cur_noise_vecs = 0.1 *torch.randn(cur_n, feat_dim).to(utils.device)
                 
         cur_noise_vecs[:, i*chunk_sz] += np.sqrt(n_dir/np.clip(cor_portion, 0.01, None))
-        #noise_vecs[start:end, noise_idx] += 1./np.clip(cor_portion, 0.01, None) 
-        #cur_noise_vecs[:, i] += 1./np.clip(cor_portion, 0.01, None) #np.sqrt(feat_dim)/2
+        #noise_vecs[start:end, noise_idx] += 1./np.clip(cor_portion, 0.01, None)         
         
         cur_noise_vecs[cur_n//2:] *= (-1)
         ###corrupt1d(X, prev_dir_l, cor_idx[start:end], noise_vecs[start:end])        
@@ -130,8 +125,10 @@ def corrupt(feat_dim, n_dir, cor_portion, opt):
     n = int(len(noise_vecs)/(cor_portion/(1-cor_portion)))
     X = generate_sample(n, feat_dim)
     X = torch.cat((noise_vecs, X), dim=0)
+    
     if len(X) < feat_dim:
         print('Warning: number of samples smaller than feature dim!')
+    opt.true_mean = torch.zeros(1, feat_dim, device=utils.device)
     '''
     idx = torch.zeros(n_dir, n_points, device=X.device)
     src = torch.ones(1, n_cor, device=X.device).expand(n_dir, -1)
@@ -436,6 +433,112 @@ def train(X, noise_idx, outlier_method_l, opt):
     return scores_l
 
 '''
+Evaluate robust mean estimation using various scorings on X, in terms
+of both error from true mean and time.
+Input:
+-X: input, already corrupted and centered.
+-n: number of samples
+'''
+def train_rme(X, noise_idx, outlier_method_l, opt):
+
+    opt.norm_thresh = 1.2
+    spectral_norm, _ = utils.dominant_eval_cov(X) #utils.eval_  (sigma X)
+    '''
+    use_dom_eval = True
+    if use_dom_eval:
+        #dynamically set lamb now
+        #find dominant eval.
+        dom_eval, _ = utils.dominant_eval_cov(X)
+        opt.lamb = 1./dom_eval * opt.lamb_multiplier        
+        lamb = opt.lamb
+    '''
+    #error_initial = utils.l2_dist(X.mean(dim=0), opt.true_mean) #((X-opt.true_mean)**2).mean(dim=0).sum()
+    #print('initial_error {}'.format(error_initial))
+    initial_norm = spectral_norm
+    #data for tau0
+    X0 = X.clone()
+    X1 = X
+    #run in loop until spectral norm small
+    #opt.remove_p already set for tau0
+    counter0 = 0
+    time0 = time.time()
+    while spectral_norm > opt.norm_thresh:
+        #tau1, select_idx1, n_removed1, tau0, select_idx0, n_removed0 = compute_tau1_tau0(X, opt)
+        select_idx0, n_removed0, tau0 = get_select_idx(X0, compute_tau0, opt)
+        X0 = X0[select_idx0]
+        spectral_norm, _ = utils.dominant_eval_cov(X0)
+        counter0 += 1
+    time0 = time.time() - time0
+    print('time0 {} counter0 {}'.format(time0, counter0))
+    error0 = utils.l2_dist(X0.mean(dim=0), opt.true_mean)
+    
+    spectral_norm = initial_norm    
+    opt.remove_p = opt.p/2
+    opt.lamb = 1./spectral_norm * opt.lamb_multiplier
+    counter1 = 0
+    time1 = time.time()
+    while spectral_norm > opt.norm_thresh:
+        select_idx1, n_removed1, tau1 = get_select_idx(X1, compute_tau1_fast, opt)
+        X1 = X1[select_idx1]        
+        #find dominant eval.
+        dom_eval, _ = utils.dominant_eval_cov(X1)  
+        opt.lamb = 1./dom_eval * opt.lamb_multiplier
+        spectral_norm = dom_eval
+        counter1 += 1
+        
+    time1 = time.time() - time1
+    print('time1 {} counter1 {}'.format(time1, counter1))
+
+    error1 = utils.l2_dist(X1.mean(dim=0), opt.true_mean)
+    #pdb.set_trace()
+    '''    
+    all_idx = torch.zeros(X.size(0), device=device) 
+    ones = torch.ones(noise_idx.size(0), device=device) 
+    all_idx.scatter_add_(dim=0, index=noise_idx.squeeze(), src=ones)
+        
+    #scores of good and bad points
+    good_scores1 = tau1[all_idx==0]
+    bad_scores1 = tau1[all_idx==1]
+    good_scores0 = tau0[all_idx==0]
+    bad_scores0 = tau0[all_idx==1]
+    
+    auc1 = utils.auc(good_scores1, bad_scores1)
+    auc0 = utils.auc(good_scores0, bad_scores0)
+    print('auc0 {} auc1 {}'.format(auc0, auc1))
+    scores_l = [auc1, auc0]
+    
+    #default is tau0
+    for method in outlier_method_l:
+        if method == 'iso forest':
+            tau = baselines.isolation_forest(X)
+        elif method == 'lof':
+            tau = baselines.knn_dist_lof(X)
+        elif method == 'ell env':
+            tau = baselines.ellenv(X)
+        elif method == 'dbscan':
+            tau = baselines.dbscan(X)
+        elif method == 'l2':
+            tau = baselines.l2(X)
+        elif method == 'knn':
+            tau = baselines.knn_dist(X)
+        else:
+            raise Exception('method {} not supported'.format(method))
+        
+        good_tau = tau[all_idx==0]
+        bad_tau = tau[all_idx==1]    
+        auc = utils.auc(good_tau, bad_tau)        
+        scores_l.append(auc)
+        if opt.visualize_scores:
+            pdb.set_trace()
+            utils.inlier_outlier_hist(good_tau, bad_tau, method+'syn')
+        
+    #acc1 = compute_acc_with_idx(select_idx1, cor_idx, X, n_removed1)
+    #acc0 = compute_acc_with_idx(select_idx0, cor_idx, X, n_removed0)
+    '''
+    scores_l = [error1, error0, time1, time0]
+    return scores_l
+
+'''
 Computes tau1 and tau0.
 Note: after calling this for multiple iterations, use select_idx rather than the scores tau 
 for determining which have been selected as outliers. Since tau's are scores for remaining points after outliers.
@@ -500,9 +603,26 @@ def compute_tau1_tau0(X, opt):
     
     return tau1, select_idx1, n_removed1, tau0, select_idx0, n_removed0
 
+def get_select_idx(X, tau_method, opt):
+    if device == 'cuda':
+        select_idx = torch.cuda.LongTensor(list(range(X.size(0))))
+    else:
+        select_idx = torch.LongTensor(list(range(X.size(0))))
+    n_removed = 0
+    noise_vecs = None
+    for _ in range(opt.n_iter):
+        tau1 = tau_method(X, select_idx, opt, noise_vecs)
+        #select idx to keep
+        cur_select_idx = torch.topk(tau1, k=int(tau1.size(0)*(1-opt.remove_p)), largest=False)[1]
+        #note these points are indices of current iteration            
+        n_removed += (select_idx.size(0) - cur_select_idx.size(0))
+        select_idx = torch.index_select(select_idx, index=cur_select_idx, dim=0)            
+    return select_idx, n_removed, tau1
+
+
 '''
 Generate random data, corrupt, score, and test accuracies.
-With respec to number of directions noise is added.
+With respect to number of directions of noise added.
 '''
 def generate_and_score(opt, dataset_name='syn'):
     
@@ -512,23 +632,24 @@ def generate_and_score(opt, dataset_name='syn'):
     else:
         opt.n = 10000 
         opt.feat_dim = 128 
+        opt.feat_dim = 512
     
     n = opt.n
     feat_dim = opt.feat_dim
-    n_repeat = 2
+    n_repeat = 20
     opt.p = 0.2 #default total portion corrupted
     #number of top dirs for calculating tau0
     opt.n_top_dir = 1
     opt.dataset_name = dataset_name
     data_l = []
     n_dir_l = list(range(1, 16, 3))
-    n_dir_l = [2]
+    n_dir_l = [20]
     if dataset_name == 'syn':
         for n_dir in n_dir_l:
             cur_data_l = []
             for _ in range(n_repeat):
                 X, cor_idx, noise_vecs = corrupt(feat_dim, n_dir, opt.p, opt)
-                X = X.to(device='cpu')
+                ##X = X.to(device='cpu') #march
                 n = len(X)
                 
                 X = X - X.mean(0)
@@ -581,10 +702,14 @@ def generate_and_score(opt, dataset_name='syn'):
     
     outlier_methods_l = ['l2', 'lof', 'isolation_forest', 'knn', 'dbscan']
     outlier_methods_l = ['l2', 'iso forest', 'ell env', 'lof', 'knn']
-    outlier_methods_l = ['knn'] #march 
-    #+3 for tau1 tau0 and lamb
-    scores_ar = np.zeros((len(n_dir_l), len(outlier_methods_l)+3))
-    std_ar = np.zeros((len(n_dir_l), len(outlier_methods_l)+3))
+    if opt.rme:
+        #5 to include both accuracy and time
+        scores_ar = np.zeros((n_repeat, 5))
+        std_ar = np.zeros((n_repeat, 5))
+    else:
+        #+3 for tau1 tau0 and lamb
+        scores_ar = np.zeros((len(n_dir_l), len(outlier_methods_l)+3))
+        std_ar = np.zeros((len(n_dir_l), len(outlier_methods_l)+3)) 
     opt.lamb_multiplier = 4
     
     for j, n_noise_dir in enumerate(n_dir_l):
@@ -595,14 +720,29 @@ def generate_and_score(opt, dataset_name='syn'):
         
         cur_res_l = [n, feat_dim, n_noise_dir, opt.p, opt.lamb_multiplier, opt.norm_scale]
         acc_mx = torch.zeros(n_repeat, 2)
-        cur_scores_ar = np.zeros((n_repeat, len(outlier_methods_l)+2))
+        if opt.rme:
+            cur_scores_ar = np.zeros((n_repeat, 4))
+        else:
+            cur_scores_ar = np.zeros((n_repeat, len(outlier_methods_l)+2))
+
+        #can remove at most (opt.p/n_dir)*max_multiplier_factor at each tau0 iteration
+        max_multiplier_factor = 5
+        remove_p_l = [opt.p / opt.n_dir * i for i in range(1, max_multiplier_factor+1)]
+        remove_p_l = remove_p_l * int(n_repeat/len(remove_p_l)+1)
+        print('remove_p_l {}'.format(remove_p_l))
         cur_data_l = data_l[j]
         for i in range(n_repeat):            
             X, noise_idx = cur_data_l[i]
             X = X.to(device=utils.device)
-            cur_scores_ar[i] = train(X, noise_idx, outlier_methods_l, opt)
+            if opt.rme:
+                #set portion removed for variety of values
+                opt.remove_p = remove_p_l[i]
+                cur_scores_ar[i] = train_rme(X, noise_idx, outlier_methods_l, opt)
+            else:
+                cur_scores_ar[i] = train(X, noise_idx, outlier_methods_l, opt)
+            
             acc_mx[i, 0] = cur_scores_ar[i, 1] #acc0
-            acc_mx[i, 1] = cur_scores_ar[i, 0] #acc1
+            acc_mx[i, 1] = cur_scores_ar[i, 0] #acc1            
             n_data = len(X)
             del(X)
             
@@ -611,17 +751,27 @@ def generate_and_score(opt, dataset_name='syn'):
         if take_diff:
             cur_scores_ar[:, 1] = cur_scores_ar[:, 0] - cur_scores_ar[:, 1]
             cur_scores_ar[:, 2] = cur_scores_ar[:, 0] - cur_scores_ar[:, 2]
-        scores_ar[j, 1:] = np.mean(cur_scores_ar, axis=0)
+        if opt.rme:
+            scores_ar[:, 1:] = cur_scores_ar
+        else:
+            scores_ar[j, 1:] = np.mean(cur_scores_ar, axis=0)
         
         if opt.use_std:
-            std_ar[j, 1:] = np.std(cur_scores_ar, axis=0)
+            if opt.rme:
+                std_ar[:, 1:] = np.zeros((n_repeat, 4))
+            else:                
+                std_ar[j, 1:] = np.std(cur_scores_ar, axis=0)
         else:
             #.95 confidence intervals
             se = np.clip(st.sem(cur_scores_ar, axis=0), 1e-3, None)        
             low, high = st.t.interval(0.95, cur_scores_ar.shape[0]-1, loc=scores_ar[j, 1:], scale=se)
             std_ar[j, 1:] = (high - low)/2.
-            
-        scores_ar[j, 0] = n_noise_dir
+
+        if opt.rme:
+            #this will not be used in plotting rme stats.
+            scores_ar[j, 0] = n_noise_dir            
+        else:
+            scores_ar[j, 0] = n_noise_dir
         acc_mean = acc_mx.mean(dim=0)
         acc0, acc1 = acc_mean[0].item(), acc_mean[1].item()
         print('n_noise_dir {} lamb {} acc0 {} acc1 {}'.format(n_noise_dir, opt.lamb_multiplier, acc0, acc1))
@@ -639,9 +789,13 @@ def generate_and_score(opt, dataset_name='syn'):
     else:
         legends = ['k', 'acc', 'tau', 'p']
     utils.plot_acc(k_l, acc_l, tau_l, p_l, legends, opt)
+    
     scores_ar = scores_ar.transpose()
     std_ar = std_ar.transpose()
-    utils.plot_scatter_flex(scores_ar, ['tau1', 'tau0'] + outlier_methods_l, opt, std_ar=std_ar)
+    if opt.rme:
+        utils.plot_scatter_flex(scores_ar, ['tau1', 'tau0'] + outlier_methods_l, opt, std_ar=std_ar)
+    else:
+        utils.plot_scatter_flex(scores_ar, ['tau1', 'tau0'] + outlier_methods_l, opt, std_ar=std_ar)
     m = {'opt':opt, 'scores_ar':scores_ar, 'conf_ar':std_ar}
     f_name = 'dirs_data_fast.npy' if opt.fast_jl else 'dirs_data.npy' 
     with open(osp.join('results', opt.dir, f_name), 'wb') as f:
@@ -657,7 +811,7 @@ def generate_and_score(opt, dataset_name='syn'):
         utils.write_lines(res_l, res_path, 'a')
 
 '''
-Vary synthetic data wrt lambda.
+Evaluate various scorings on synthetic data wrt lambda.
 '''
 def generate_and_score_lamb(opt, dataset_name='syn'):
 
@@ -761,7 +915,7 @@ def generate_and_score_lamb2(opt, dataset_name='syn'):
     
     print('samples size {} {} padded: {}'.format(n, feat_dim, X.size(1)))
         
-    #which baseline to use as tau0, can be 'isolation_forest', la, tau0, etc
+    #which baseline to use as tau0, can be 'isolation_forest', l2, tau0, etc
     opt.baseline = 'tau0'
     print('baseline method: {}'.format(opt.baseline))
     
@@ -887,7 +1041,6 @@ def test_genetics_data():
 
 def test_glove_data(opt):
 
-    ## update here to run on other text data ##
     text_name = 'sherlock'
     
     with open('data/{}.txt'.format(text_name), 'r') as file:
@@ -1653,6 +1806,7 @@ if __name__=='__main__':
     opt.fast_jl = True     
     opt.high_dim = True
     '''
+    generate_data = True 
     #compute std or confidence interval to measure uncertainty.
     opt.use_std = True
     #whether computing differences between scores or raw scores.
@@ -1661,6 +1815,10 @@ if __name__=='__main__':
     opt.visualize_scores = False
     #whether to whiten data, note this is void for some datasets.
     opt.whiten = True
+    #run robust mean estimation rather than outlier detection.
+    #Note this is only supported for evaluating against number of directions.
+    opt.rme = True
+    #e.g. syn_dirs, syn_lamb
     dataset_name = opt.experiment_type
     
     if opt.generate_data:
