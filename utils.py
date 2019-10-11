@@ -5,7 +5,6 @@ Utilities functions
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
 import numpy as np
 import os
@@ -15,8 +14,6 @@ import argparse
 import torch
 import math
 import numpy.linalg as linalg
-#can be obtained from https://github.com/FALCONN-LIB/FFHT
-import ffht
 import scipy.linalg
 
 import pdb
@@ -110,7 +107,7 @@ def jl_chebyshev(X, lamb):
         X_scaled /= scale
     else:
         scale = 1    
-    #k = int(math.log(feat_dim, 2))
+    
     subsample_freq = int(feat_dim/math.log(feat_dim, 2)) #100
     k = math.ceil(feat_dim/subsample_freq)
 
@@ -124,7 +121,10 @@ def jl_chebyshev(X, lamb):
     M = D
     I_proj = torch.mm(D, I_proj)
     if ffht_b:
-        
+        #can be obtained from https://github.com/FALCONN-LIB/FFHT
+        #place here so not everyone needs to install.   
+        import ffht
+
         M = M.t()
         #M1 = np.zeros((M.size(0), M.size(1)), dtype=np.double)
         M_np = M.cpu().numpy()
@@ -430,7 +430,7 @@ legends: last field of which correponds to hue, and dictates which kind of plot,
 '''
 #def plot_acc(acc_l, k_l, p_l, tau_l, opt):
 def plot_acc(k_l, acc_l, tau_l, p_l, legends, opt):
-    
+    import seaborn as sns
     opt.lamb = round(opt.lamb, 2)
     df = create_df(k_l, acc_l, tau_l, p_l, legends)
     #fig = sns.scatterplot(x='k', y='acc', style='tau', hue='p', data=df)
@@ -446,7 +446,7 @@ def plot_acc(k_l, acc_l, tau_l, p_l, legends, opt):
 Plot wrt lambda
 '''
 def plot_acc_syn_lamb(p_l, acc_l, tau_l, legends, opt):
-    
+    import seaborn as sns
     opt.lamb = round(opt.lamb, 2)
     df = pd.DataFrame({legends[0]:p_l, legends[1]:acc_l, legends[2]:tau_l})
     #df = create_df(p_l, acc_l, tau_l, legends)
@@ -465,8 +465,8 @@ Input:
 -standard deviation: standard deviation around each point.
 '''
 def plot_scatter(X, Y, legends, opt, std=None):
-    df = pd.DataFrame({legends[0]:X, legends[1]:Y})
-    
+    import seaborn as sns
+    df = pd.DataFrame({legends[0]:X, legends[1]:Y})    
     fig = sns.scatterplot(x=legends[0], y=legends[1], data=df, label=(legends[1]))
     #fig = sns.scatterplot(x=legends[0], y=legends[1], style=legends[2], hue=legends[3], data=df)
 
@@ -719,7 +719,8 @@ def create_df_(acc_mx, probe_mx, height, k, opt):
     df = pd.DataFrame({'probe_count':probe_l, 'acc':acc_l, 'dist_count':dist_count_l})
     return df
 
-def plot_acc_():    
+def plot_acc_():
+    import seaborn as sns
     df_l = []
     height_df_l = []
     for i, acc_mx in enumerate(acc_mx_l):
@@ -853,3 +854,69 @@ def dist_rank(data_x, k, data_y=None, largest=False, opt=None, include_self=Fals
         topk = topk[:, :-1]
     topk = topk.to(device_o)
     return act_dist, topk
+
+def remove_stop_words(tok_l):
+    """
+    Input: tok_l: list of tokens
+    """
+    tok_l2 = []
+    for tok in tok_l:
+        if tok not in STOP_WORDS:
+            tok_l2.append(tok)
+    return tok_l2
+
+## This below is due to the authors of spacy, reproduced here as some users have ##
+## reported difficulties installing the language packages required for processig text ##
+from __future__ import unicode_literals
+
+# Stop words
+STOP_WORDS = set(
+    """
+a about above across after afterwards again against all almost alone along
+already also although always am among amongst amount an and another any anyhow
+anyone anything anyway anywhere are around as at
+back be became because become becomes becoming been before beforehand behind
+being below beside besides between beyond both bottom but by
+call can cannot ca could
+did do does doing done down due during
+each eight either eleven else elsewhere empty enough even ever every
+everyone everything everywhere except
+few fifteen fifty first five for former formerly forty four from front full
+further
+get give go
+had has have he hence her here hereafter hereby herein hereupon hers herself
+him himself his how however hundred
+i if in indeed into is it its itself
+keep
+last latter latterly least less
+just
+made make many may me meanwhile might mine more moreover most mostly move much
+must my myself
+name namely neither never nevertheless next nine no nobody none noone nor not
+nothing now nowhere
+of off often on once one only onto or other others otherwise our ours ourselves
+out over own
+part per perhaps please put
+quite
+rather re really regarding
+same say see seem seemed seeming seems serious several she should show side
+since six sixty so some somehow someone something sometime sometimes somewhere
+still such
+take ten than that the their them themselves then thence there thereafter
+thereby therefore therein thereupon these they third this those though three
+through throughout thru thus to together too top toward towards twelve twenty
+two
+under until up unless upon us used using
+various very very via was we well were what whatever when whence whenever where
+whereafter whereas whereby wherein whereupon wherever whether which while
+whither who whoever whole whom whose why will with within without would
+yet you your yours yourself yourselves
+""".split()
+)
+
+contractions = ["n't", "'d", "'ll", "'m", "'re", "'s", "'ve"]
+STOP_WORDS.update(contractions)
+
+for apostrophe in ["‘", "’"]:
+    for stopword in contractions:
+        STOP_WORDS.add(stopword.replace("'", apostrophe))

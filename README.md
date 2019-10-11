@@ -2,8 +2,16 @@
 
 This repo contains code for our paper [**Quantum Entropy Scoring for Fast Robust Mean Estimation and Improved Outlier Detection**](https://arxiv.org/abs/1906.11366).
 
+[Yihe Dong](http://yihedong.me/), [Sam Hopkins](http://www.samuelbhopkins.com/), [Jerry Li](https://jerryzli.github.io/)
+_________________
 
-Description of select scripts:
+### Install
+To install dependencies, run:
+```
+pip install -r requirements.txt
+```
+
+### Description of select scripts:
 * [`mean.py`](mean.py) contains the backbone of the experimental setup and evaluation.
 * [`utils.py`](utils.py) contains various utilities methods, such as fast JL computation.
 * Auxiliary scripts specific to certain experiments: [`pixel.py`](pixel.py) used for running the hot pixels experiments on CIFAR data, [`words.py`](words.py) used when running word embeddings experiments.
@@ -29,6 +37,19 @@ python pixel.py --experiment_type image_lamb
 For more available runtime options see:
 ```
 python mean.py -h
+```
+
+### Reference
+
+If you find our paper and repo useful, please cite as:
+
+```
+@inproceedings{que2019,
+  title={Quantum Entropy Scoring for Fast Robust Mean Estimation and Improved Outlier Detection},
+  author={Dong, Yihe and Hopkins, Samuel and Li, Jerry},
+  booktitle={Advances in Neural Information Processing Systems},
+  year={2019}
+}
 ```
 <p>
 <img src="data/mean_shift1.png"  width="300" >
